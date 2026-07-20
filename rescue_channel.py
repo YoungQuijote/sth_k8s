@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""SSH 失败后的 kubectl 接应服务通道。"""
+"""SSH 失败或连接池饱和后的 kubectl 接应服务通道。"""
 
 import dataclasses
 
@@ -12,7 +12,10 @@ RESCUE_CHANNEL_VERIFY_TLS = False
 RESCUE_FALLBACK_CODES = {
     "SSH_CONNECT_FAILED",
     "SSH_AUTH_FAILED",
+    "SSH_POOL_QUEUE_FULL",
+    "SSH_POOL_ACQUIRE_TIMEOUT",
 }
+
 
 def build_rescue_payload(req: ExtractRequest, source_error: ServiceError) -> dict:
     return {
