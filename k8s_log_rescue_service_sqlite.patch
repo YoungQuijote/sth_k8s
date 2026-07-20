@@ -1,0 +1,9 @@
+--- a/k8s_log_rescue_service.py
++++ b/k8s_log_rescue_service.py
+@@
+ app = Flask(APP_NAME)
+ app.config["MAX_CONTENT_LENGTH"] = MAX_REQUEST_BYTES
++
++# SQLite 只读查询接应扩展。模块复用 LOG_RESCUE_* 鉴权、节点范围和 selector 配置。
++from sqlite_rescue import register_sqlite_rescue
++register_sqlite_rescue(app)
