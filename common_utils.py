@@ -9,6 +9,7 @@ import os
 import pathlib
 import re as std_re
 import shlex
+import stat as stat_mod
 import threading
 import time
 from typing import Any, Optional
@@ -18,13 +19,13 @@ from models import K8sTarget, SegmentRule, ServiceError, MODE_EXACT, MODE_CONTAI
 
 try:
     import regex as safe_re  # type: ignore
-    import stat as stat_mod
 except Exception as e:  # pragma: no cover
     logger.debug(f"regex module unavailable: {e}")
     safe_re = None
 
 _ZIP_CACHE_LOCKS: dict[str, threading.Lock] = {}
 _ZIP_CACHE_LOCKS_GUARD = threading.Lock()
+
 
 def get_zip_cache_lock(key: str) -> threading.Lock:
     with _ZIP_CACHE_LOCKS_GUARD:
@@ -34,17 +35,22 @@ def get_zip_cache_lock(key: str) -> threading.Lock:
             _ZIP_CACHE_LOCKS[key] = lock
         return lock
 
+
 def now_ts() -> float:
     return time.time()
+
 
 def q(value: str) -> str:
     return shlex.quote(str(value))
 
+
 def stable_json(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
+
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
 
 def ensure_no_path_escape(value: str, field_name: str) -> None:
     if not isinstance(value, str) or not value:
@@ -53,6 +59,20 @@ def ensure_no_path_escape(value: str, field_name: str) -> None:
         raise ServiceError("INVALID_REQUEST", f"{field_name} must be a single basename-like segment")
     if ".." in value:
         raise ServiceError("INVALID_REQUEST", f"{field_name} must not contain '..'")
+
+
+def validate_basename_rule(rule: SegmentRule, field_name: str) -> None:
+    """校验 basename 匹配规则；regex 允许反斜杠转义，但不允许真实路径分隔符。"""
+    value = rule.value
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise ServiceError("INVALID_REQUEST", f"{field_name} must be non-empty string")
+    if len(value) > 4096:
+        raise ServiceError("INVALID_REQUEST", f"{field_name} is too long")
+    if "/" in value:
+        raise ServiceError("INVALID_REQUEST", f"{field_name} must match basename only")
+    if rule.mode in {MODE_EXACT, MODE_CONTAINS}:
+        ensure_no_path_escape(value, field_name)
+
 
 def make_source_id(target: K8sTarget, base_path: str) -> str:
     payload = {
@@ -64,9 +84,11 @@ def make_source_id(target: K8sTarget, base_path: str) -> str:
     }
     return sha256_text(stable_json(payload))[:16]
 
+
 def safe_filename(name: str) -> str:
     name = name.replace("\x00", "_").replace("/", "_").replace("\\", "_")
     return name or "unnamed"
+
 
 def compile_pattern(pattern: str, *, field_name: str):
     if not pattern or not isinstance(pattern, str):
@@ -78,6 +100,7 @@ def compile_pattern(pattern: str, *, field_name: str):
     except Exception as e:
         raise ServiceError("REGEX_COMPILE_FAILED", f"compile {field_name} failed: {e}") from e
 
+
 def regex_search(compiled: Any, text: str, timeout_ms: int) -> Optional[Any]:
     if safe_re is not None:
         try:
@@ -85,6 +108,7 @@ def regex_search(compiled: Any, text: str, timeout_ms: int) -> Optional[Any]:
         except TimeoutError as e:
             raise ServiceError("REGEX_TIMEOUT", f"regex search timeout: {e}") from e
     return compiled.search(text)
+
 
 def basename_match(name: str, rule: SegmentRule, timeout_ms: int) -> bool:
     if rule.mode == MODE_EXACT:
@@ -95,8 +119,10 @@ def basename_match(name: str, rule: SegmentRule, timeout_ms: int) -> bool:
         return regex_search(compile_pattern(rule.value, field_name="basename regex"), name, timeout_ms) is not None
     raise ServiceError("INVALID_REQUEST", f"unsupported mode: {rule.mode}")
 
+
 def extract_match_text(match: Any) -> str:
     return match.group(1) if getattr(match, "lastindex", None) else match.group(0)
+
 
 def reverse_read_lines(path: pathlib.Path, block_size: int = 65536, encoding: str = "utf-8"):
     with path.open("rb") as f:
@@ -116,6 +142,7 @@ def reverse_read_lines(path: pathlib.Path, block_size: int = 65536, encoding: st
         if buffer:
             yield buffer.decode(encoding, errors="replace")
 
+
 def dir_size_bytes(path: pathlib.Path) -> int:
     total = 0
     if not path.exists():
@@ -125,6 +152,7 @@ def dir_size_bytes(path: pathlib.Path) -> int:
             with contextlib.suppress(OSError):
                 total += (pathlib.Path(root) / file).stat().st_size
     return total
+
 
 def atomic_write_json(path: pathlib.Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -139,6 +167,7 @@ def atomic_write_json(path: pathlib.Path, data: Any) -> None:
     finally:
         with contextlib.suppress(FileNotFoundError):
             tmp_path.unlink()
+
 
 def parse_bool(value: Any, default: bool = False) -> bool:
     if value is None:

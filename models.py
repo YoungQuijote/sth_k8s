@@ -7,7 +7,7 @@ from dataclasses import dataclass, field as dc_field
 from typing import Any, Literal, Optional
 
 APP_NAME = "k8s-log-fetcher"
-APP_VERSION = "2026.06.02-multi-pod-zip-cache-refresh-interval"
+APP_VERSION = "2026.07.20-sqlite-query"
 DEFAULT_CACHE_ROOT = os.environ.get("K8S_LOG_FETCHER_CACHE", "./tmp/k8s-log-fetcher-cache")
 DEFAULT_REMOTE_TMP_PREFIX = "/tmp/k8s-log-fetcher."
 DEFAULT_REAL_TAIL_BYTES = 4 * 1024 * 1024
@@ -20,8 +20,11 @@ TRANSFER_STREAM = "stream"
 RETURN_MODE_VALUE = "value"
 RETURN_MODE_FULL_LINE = "full_line"
 RETURN_MODE_MATCH = "match"
+SQLITE_RESULT_MODE_ALL = "all"
+SQLITE_RESULT_MODE_COLUMNS = "columns"
 POD_MATCH_SINGLE = "single"
 POD_MATCH_ALL = "all"
+
 
 class ServiceError(RuntimeError):
     def __init__(self, code: str, message: str, *, http_status: int = 400, details: Optional[Any] = None):
@@ -31,12 +34,14 @@ class ServiceError(RuntimeError):
         self.details = details
         super().__init__(f"[{code}] {message}")
 
+
 @dataclass
 class WarningItem:
     code: str
     message: str
     file: Optional[str] = None
     details: Optional[Any] = None
+
     def as_dict(self) -> dict[str, Any]:
         data = {"code": self.code, "message": self.message}
         if self.file is not None:
@@ -44,6 +49,7 @@ class WarningItem:
         if self.details is not None:
             data["details"] = self.details
         return data
+
 
 @dataclass(frozen=True)
 class SSHInfo:
@@ -55,16 +61,19 @@ class SSHInfo:
     password: Optional[str] = None
     timeout: int = 15
 
+
 @dataclass(frozen=True)
 class Selector:
     namespace: str
     pod: str
     container: str
 
+
 @dataclass(frozen=True)
 class SegmentRule:
     mode: Literal["exact", "contains", "regex"]
     value: str
+
 
 @dataclass(frozen=True)
 class Options:
@@ -89,6 +98,7 @@ class Options:
     remote_cmd_timeout: int = 300
     copy_retry: int = 1
 
+
 @dataclass(frozen=True)
 class ExtractRequest:
     ssh: SSHInfo
@@ -104,6 +114,47 @@ class ExtractRequest:
     trace: dict[str, Any] = dc_field(default_factory=dict)
     options: Options = dc_field(default_factory=Options)
 
+
+@dataclass(frozen=True)
+class SQLiteQuerySpec:
+    sql: str
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class SQLiteQueryOptions:
+    pod_match_policy: Literal["single", "all"] = POD_MATCH_ALL
+    container_user: Optional[str] = None
+    sqlite_busy_timeout_ms: int = 5000
+    query_timeout_seconds: int = 30
+    max_chat_ids: int = 100
+    max_pods: int = 32
+    max_rows_per_chat_id: int = 1000
+    max_total_rows: int = 5000
+    max_result_size_bytes: int = 16 * 1024 * 1024
+    max_cell_size_bytes: int = 4 * 1024 * 1024
+    max_sql_length: int = 128 * 1024
+    max_sqlite_file_size_mb: int = 4096
+    regex_timeout_ms: int = 100
+    remote_cmd_timeout: int = 40
+
+
+@dataclass(frozen=True)
+class SQLiteQueryRequest:
+    ssh: SSHInfo
+    selector: Selector
+    path_segments: list[SegmentRule]
+    sqlite_file: SegmentRule
+    chat_ids: list[str]
+    sql: str
+    query_source: Literal["field", "user_sql"]
+    field: Optional[str] = None
+    result_mode: Literal["all", "columns"] = SQLITE_RESULT_MODE_ALL
+    columns: list[str] = dc_field(default_factory=list)
+    trace: dict[str, Any] = dc_field(default_factory=dict)
+    options: SQLiteQueryOptions = dc_field(default_factory=SQLiteQueryOptions)
+
+
 @dataclass
 class K8sTarget:
     namespace: str
@@ -111,6 +162,7 @@ class K8sTarget:
     pod_uid: Optional[str]
     container: str
     container_id: Optional[str]
+
 
 @dataclass
 class RemoteLogFile:
@@ -126,6 +178,7 @@ class RemoteLogFile:
     container: str
     container_id: Optional[str]
 
+
 @dataclass
 class LocalLogFile:
     local_path: str
@@ -140,8 +193,20 @@ class LocalLogFile:
     container: str = ""
     container_id: Optional[str] = None
 
+
 @dataclass
 class ResolvedLogBatch:
     target: K8sTarget
     base_path: str
     remote_files: list[RemoteLogFile]
+
+
+@dataclass(frozen=True)
+class ResolvedSQLiteSource:
+    target: K8sTarget
+    base_path: str
+    sqlite_path: str
+    sqlite_name: str
+    mtime: float
+    size: int
+    source_id: str

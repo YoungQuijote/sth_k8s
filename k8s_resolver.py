@@ -7,8 +7,9 @@ import json
 from typing import Any, Literal
 
 from models import K8sTarget, Options, RemoteLogFile, SegmentRule, Selector, ServiceError, POD_MATCH_SINGLE
-from common_utils import q, ensure_no_path_escape, basename_match, make_source_id
+from common_utils import q, basename_match, make_source_id, validate_basename_rule
 from ssh_utils import SSHClientWrapper, kubectl_exec_cmd
+
 
 def get_pods_json(ssh: SSHClientWrapper, timeout: int) -> dict[str, Any]:
     try:
@@ -20,6 +21,7 @@ def get_pods_json(ssh: SSHClientWrapper, timeout: int) -> dict[str, Any]:
         return json.loads(out)
     except Exception as e:
         raise ServiceError("KUBECTL_JSON_PARSE_FAILED", f"kubectl json parse failed: {e}", http_status=502) from e
+
 
 def _target_from_pod_item(pod: dict[str, Any], selector: Selector) -> K8sTarget:
     meta = pod.get("metadata", {})
@@ -42,6 +44,7 @@ def _target_from_pod_item(pod: dict[str, Any], selector: Selector) -> K8sTarget:
         container=container_name, container_id=container_id,
     )
 
+
 def resolve_k8s_targets(pods_json: dict[str, Any], selector: Selector, options: Options) -> list[K8sTarget]:
     items = pods_json.get("items") or []
     ns_names = sorted({item.get("metadata", {}).get("namespace", "") for item in items})
@@ -63,9 +66,11 @@ def resolve_k8s_targets(pods_json: dict[str, Any], selector: Selector, options: 
     pod_hits.sort(key=lambda p: p.get("metadata", {}).get("name", ""))
     return [_target_from_pod_item(pod, selector) for pod in pod_hits]
 
+
 def resolve_k8s_target(pods_json: dict[str, Any], selector: Selector) -> K8sTarget:
     options = Options(pod_match_policy="all")
     return resolve_k8s_targets(pods_json, selector, options)[0]
+
 
 def list_child_entries(ssh: SSHClientWrapper, target: K8sTarget, current_dir: str, entry_type: Literal["dir", "file"], options: Options) -> list[dict[str, Any]]:
     type_test = "-d" if entry_type == "dir" else "-f"
@@ -73,6 +78,7 @@ def list_child_entries(ssh: SSHClientWrapper, target: K8sTarget, current_dir: st
 DIR={q(current_dir)}
 [ -d "$DIR" ] || exit 12
 for p in "$DIR"/* "$DIR"/.[!.]* "$DIR"/..?*; do
+  [ ! -L "$p" ] || continue
   [ {type_test} "$p" ] || continue
   name=${{p##*/}}
   mtime=$(stat -c %Y "$p" 2>/dev/null || stat -f %m "$p" 2>/dev/null || echo 0)
@@ -102,10 +108,11 @@ done'''
         entries.append({"name": parts[2], "mtime": mtime, "size": size})
     return entries
 
+
 def resolve_base_path(ssh: SSHClientWrapper, target: K8sTarget, path_segments: list[SegmentRule], options: Options) -> str:
     current = "/"
     for idx, segment in enumerate(path_segments):
-        ensure_no_path_escape(segment.value, f"path_segments[{idx}].value")
+        validate_basename_rule(segment, f"path_segments[{idx}].value")
         entries = list_child_entries(ssh, target, current, "dir", options)
         hits = [e for e in entries if basename_match(e["name"], segment, options.regex_timeout_ms)]
         if not hits:
@@ -114,8 +121,9 @@ def resolve_base_path(ssh: SSHClientWrapper, target: K8sTarget, path_segments: l
         current = current.rstrip("/") + "/" + hits[0]["name"] if current != "/" else "/" + hits[0]["name"]
     return current
 
+
 def list_remote_log_files(ssh: SSHClientWrapper, target: K8sTarget, base_path: str, log_file_rule: SegmentRule, options: Options) -> list[RemoteLogFile]:
-    ensure_no_path_escape(log_file_rule.value, "log_file.value")
+    validate_basename_rule(log_file_rule, "log_file.value")
     entries = list_child_entries(ssh, target, base_path, "file", options)
     hits = [e for e in entries if basename_match(e["name"], log_file_rule, options.regex_timeout_ms)]
     if not hits:
@@ -139,6 +147,7 @@ def list_remote_log_files(ssh: SSHClientWrapper, target: K8sTarget, base_path: s
     if not files:
         raise ServiceError("ALL_LOG_FILES_TOO_LARGE", "all matched log files exceeded max_single_file_size_mb", details=skipped)
     return files
+
 
 def stat_remote_log_files(ssh: SSHClientWrapper, target: K8sTarget, base_path: str, remote_files: list[RemoteLogFile], options: Options) -> list[RemoteLogFile]:
     if not remote_files:

@@ -92,9 +92,8 @@ class _SSHPhysicalClient:
             f"invalid private key: {errors[-1] if errors else 'unknown'}",
         )
 
-    def run(self, cmd: str, *, timeout: int = 300, check: bool = True) -> tuple[str, str, int]:
-        stdin, stdout, stderr = self.client.exec_command(cmd, timeout=timeout)
-        del stdin
+    @staticmethod
+    def _decode_result(stdout, stderr, *, cmd: str, check: bool) -> tuple[str, str, int]:
         out_bytes = stdout.read()
         err_bytes = stderr.read()
         code = stdout.channel.recv_exit_status()
@@ -109,6 +108,30 @@ class _SSHPhysicalClient:
             )
         return out, err, code
 
+    def run(self, cmd: str, *, timeout: int = 300, check: bool = True) -> tuple[str, str, int]:
+        stdin, stdout, stderr = self.client.exec_command(cmd, timeout=timeout)
+        stdin.close()
+        return self._decode_result(stdout, stderr, cmd=cmd, check=check)
+
+    def run_with_input(
+            self,
+            cmd: str,
+            input_data: bytes | str,
+            *,
+            timeout: int = 300,
+            check: bool = True,
+    ) -> tuple[str, str, int]:
+        stdin, stdout, stderr = self.client.exec_command(cmd, timeout=timeout)
+        payload = input_data.encode("utf-8") if isinstance(input_data, str) else input_data
+        try:
+            if payload:
+                stdin.write(payload)
+                stdin.flush()
+        finally:
+            stdin.channel.shutdown_write()
+            stdin.close()
+        return self._decode_result(stdout, stderr, cmd=cmd, check=check)
+
     def open_sftp(self):
         return self.client.open_sftp()
 
@@ -121,11 +144,7 @@ atexit.register(SSH_CONNECTION_MANAGER.close)
 
 
 class SSHClientWrapper:
-    """保持原调用接口的 SSH 连接租约门面。
-
-    `with SSHClientWrapper(info) as ssh` 会租借一条独占物理连接；退出上下文
-    时归还连接池。连接是否关闭由健康状态、空闲 TTL 和最大生命周期决定。
-    """
+    """保持原调用接口的 SSH 连接租约门面。"""
 
     def __init__(self, info: SSHInfo):
         self.info = info
@@ -164,6 +183,21 @@ class SSHClientWrapper:
     def run(self, cmd: str, *, timeout: int = 300, check: bool = True) -> tuple[str, str, int]:
         return self._require_physical().run(cmd, timeout=timeout, check=check)
 
+    def run_with_input(
+            self,
+            cmd: str,
+            input_data: bytes | str,
+            *,
+            timeout: int = 300,
+            check: bool = True,
+    ) -> tuple[str, str, int]:
+        return self._require_physical().run_with_input(
+            cmd,
+            input_data,
+            timeout=timeout,
+            check=check,
+        )
+
     def open_sftp(self):
         return self._require_physical().open_sftp()
 
@@ -177,9 +211,16 @@ class SSHClientWrapper:
         return self._physical
 
 
-def kubectl_exec_cmd(target: K8sTarget, inner_cmd: str, container_user: Optional[str] = None) -> str:
+def kubectl_exec_cmd(
+        target: K8sTarget,
+        inner_cmd: str,
+        container_user: Optional[str] = None,
+        *,
+        stdin: bool = False,
+) -> str:
     user_part = f" --user={q(container_user)}" if container_user else ""
+    stdin_part = " -i" if stdin else ""
     return (
-        f"kubectl exec -n {q(target.namespace)} {q(target.pod)} "
+        f"kubectl exec{stdin_part} -n {q(target.namespace)} {q(target.pod)} "
         f"-c {q(target.container)}{user_part} -- sh -c {q(inner_cmd)}"
     )
