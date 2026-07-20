@@ -214,7 +214,7 @@ def execute_request(req: SQLiteRescueRequest) -> dict[str, Any]:
                 items[chat_id]["source_count"] += 1
                 items[chat_id]["row_count"] += count
     result_items = [items[chat_id] for chat_id in req.chat_ids]
-    return {
+    response = {
         "success": True,
         "items": result_items,
         "missed_chat_ids": [chat_id for chat_id in req.chat_ids if not items[chat_id]["row_count"]],
@@ -228,11 +228,21 @@ def execute_request(req: SQLiteRescueRequest) -> dict[str, Any]:
         "warnings": [item.as_dict() for item in warnings],
         "error": None,
     }
+    if len(json.dumps(response, ensure_ascii=False, separators=(",", ":")).encode()) > req.options.max_result_size_bytes:
+        raise ServiceError(
+            "SQLITE_RESULT_SIZE_LIMIT_EXCEEDED",
+            "final sqlite rescue response exceeded max_result_size_bytes",
+            http_status=413,
+        )
+    return response
 
 
 def register_sqlite_rescue(app: Flask) -> None:
     """在既有接应 Flask app 上注册 `/api/v1/sqlite/rescue/query`。"""
-    app.config["MAX_CONTENT_LENGTH"] = max(int(app.config.get("MAX_CONTENT_LENGTH") or 0), MAX_REQUEST_BYTES)
+    current_limit = app.config.get("MAX_CONTENT_LENGTH")
+    app.config["MAX_CONTENT_LENGTH"] = (
+        MAX_REQUEST_BYTES if current_limit is None else min(int(current_limit), MAX_REQUEST_BYTES)
+    )
     blueprint = Blueprint("sqlite_rescue", __name__)
 
     @blueprint.post("/api/v1/sqlite/rescue/query")
