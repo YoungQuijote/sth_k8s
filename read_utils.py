@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""ZIP 安全解压与扫描"""
+"""ZIP/GZIP 安全解压与扫描"""
 
 import contextlib
 import json
@@ -18,9 +18,11 @@ from models import ExtractRequest, LocalLogFile, K8sTarget, RemoteLogFile, Resol
 from models import RETURN_MODE_FULL_LINE, RETURN_MODE_MATCH, RETURN_MODE_VALUE
 from common_utils import atomic_write_json, compile_pattern, dir_size_bytes, extract_match_text, get_zip_cache_lock, make_source_id, now_ts, q, regex_search, reverse_read_lines, sha256_text, stable_json
 from log_fetcher import is_zip_log_file
+from gzip_utils import get_cached_gzip_extract, is_gzip_log_file, is_gzip_path, read_remote_gzip_tail_text
 from ssh_utils import SSHClientWrapper, kubectl_exec_cmd
 from preset_scripts import REAL_TIME_ZIP_TAIL_SCRIPT
 from regex_rule import FIELD_RULES
+
 
 def safe_extract_zip(zip_path: pathlib.Path, dest_dir: pathlib.Path, options: Options, warnings: list[WarningItem]) -> list[pathlib.Path]:
     extracted: list[pathlib.Path] = []
@@ -60,6 +62,7 @@ def safe_extract_zip(zip_path: pathlib.Path, dest_dir: pathlib.Path, options: Op
         return []
     return extracted
 
+
 def cache_entry_dir_for_local_file(path: pathlib.Path) -> pathlib.Path:
     resolved = path.resolve()
     for parent in resolved.parents:
@@ -67,9 +70,11 @@ def cache_entry_dir_for_local_file(path: pathlib.Path) -> pathlib.Path:
             return parent.parent
     return resolved.parent
 
+
 def zip_fingerprint(zip_path: pathlib.Path) -> str:
     st = zip_path.stat()
     return sha256_text(stable_json({"path": str(zip_path.resolve()), "size": st.st_size, "mtime_ns": st.st_mtime_ns}))
+
 
 def list_regular_files(root: pathlib.Path) -> list[pathlib.Path]:
     if not root.exists():
@@ -77,6 +82,7 @@ def list_regular_files(root: pathlib.Path) -> list[pathlib.Path]:
     result = [p for p in root.rglob("*") if p.is_file() and p.name != ".meta.json"]
     result.sort(key=lambda x: str(x), reverse=True)
     return result
+
 
 def update_zip_cache_meta(extract_dir: pathlib.Path, zip_path: pathlib.Path) -> None:
     meta_path = extract_dir / ".meta.json"
@@ -92,13 +98,15 @@ def update_zip_cache_meta(extract_dir: pathlib.Path, zip_path: pathlib.Path) -> 
     except FileNotFoundError:
         return
 
+
 def try_update_zip_cache_meta(extract_dir: pathlib.Path, zip_path: pathlib.Path, warnings: list[WarningItem]) -> None:
     try:
         update_zip_cache_meta(extract_dir, zip_path)
     except FileNotFoundError as e:
         warnings.append(WarningItem("ZIP_CACHE_META_UPDATE_RACE", "zip cache meta update skipped because concurrent request changed temp file", file=str(zip_path), details=str(e)))
     except Exception as e:
-        warnings.append(WarningItem("ZIP_CACHE_META_UPDATE_FAILED", f"zip cache meta update failed: {e}", file=str(zip_path)))
+        warnings.append(WarningItem("ZIP_CACHE_META_UPDATE_FAILED", f"zip cache metadata update failed: {e}", file=str(zip_path)))
+
 
 def read_zip_cache_last_used(extract_dir: pathlib.Path) -> float:
     meta_path = extract_dir / ".meta.json"
@@ -110,6 +118,7 @@ def read_zip_cache_last_used(extract_dir: pathlib.Path) -> float:
         return float(data.get("last_used_at") or 0.0)
     except Exception:
         return 0.0
+
 
 def gc_zip_extract_cache(root: pathlib.Path, options: Options, warnings: list[WarningItem]) -> None:
     if not root.exists():
@@ -136,6 +145,7 @@ def gc_zip_extract_cache(root: pathlib.Path, options: Options, warnings: list[Wa
     except Exception as e:
         warnings.append(WarningItem("ZIP_CACHE_GC_FAILED", f"zip extract cache gc failed: {e}"))
 
+
 def get_cached_zip_extract(zip_path: pathlib.Path, options: Options, warnings: list[WarningItem]) -> list[pathlib.Path]:
     entry_dir = cache_entry_dir_for_local_file(zip_path)
     root = entry_dir / "zip_extract"
@@ -161,15 +171,18 @@ def get_cached_zip_extract(zip_path: pathlib.Path, options: Options, warnings: l
         os.replace(staging, extract_dir)
         return list_regular_files(extract_dir)
 
+
 @dataclass
 class ScanState:
     results: dict[str, list[str]]
     conversation_ids: dict[str, Optional[str]]
     missed: set[str]
 
+
 def build_default_coarse_regex(req: ExtractRequest) -> str:
     logger.info(f"Fetching _field={req.field}")
     return FIELD_RULES.get(req.field) or r"Chat\[(?P<chat_id>[^\]]+)\]"
+
 
 def scan_line(line: str, chat_id_set: set[str], coarse_pattern: Any, data_pattern: Optional[Any], state: ScanState, max_matches_per_chat_id: int, timeout_ms: int, return_mode: str = RETURN_MODE_VALUE) -> None:
     coarse_match = regex_search(coarse_pattern, line, timeout_ms)
@@ -195,8 +208,10 @@ def scan_line(line: str, chat_id_set: set[str], coarse_pattern: Any, data_patter
     if len(state.results[chat_id]) >= max_matches_per_chat_id:
         state.missed.discard(chat_id)
 
+
 def all_reached_limit(state: ScanState, max_matches_per_chat_id: int) -> bool:
     return all(len(v) >= max_matches_per_chat_id for v in state.results.values())
+
 
 def scan_regular_file(path: pathlib.Path, chat_id_set: set[str], coarse_pattern: Any, data_pattern: Optional[Any], state: ScanState, options: Options, return_mode: str) -> None:
     for line in reverse_read_lines(path):
@@ -204,11 +219,13 @@ def scan_regular_file(path: pathlib.Path, chat_id_set: set[str], coarse_pattern:
         if all_reached_limit(state, options.max_matches_per_chat_id):
             break
 
+
 def scan_text_reversed(text: str, chat_id_set: set[str], coarse_pattern: Any, data_pattern: Optional[Any], state: ScanState, options: Options, return_mode: str) -> None:
     for line in reversed(text.splitlines()):
         scan_line(line, chat_id_set, coarse_pattern, data_pattern, state, options.max_matches_per_chat_id, options.regex_timeout_ms, return_mode)
         if all_reached_limit(state, options.max_matches_per_chat_id):
             break
+
 
 def read_remote_plain_tail_text(ssh: SSHClientWrapper, target: K8sTarget, file: RemoteLogFile, options: Options) -> str:
     cmd = kubectl_exec_cmd(target, f"tail -c {int(options.real_tail_bytes)} -- {q(file.remote_path)}", options.container_user)
@@ -216,6 +233,7 @@ def read_remote_plain_tail_text(ssh: SSHClientWrapper, target: K8sTarget, file: 
     if code != 0:
         raise ServiceError("REAL_TIME_TAIL_FAILED", f"real_time tail failed for pod {target.pod}", http_status=502, details={"cmd": cmd, "stderr": err[-4000:], "remote_path": file.remote_path})
     return out
+
 
 def read_remote_zip_tail_text(ssh: SSHClientWrapper, target: K8sTarget, file: RemoteLogFile, options: Options) -> str:
     max_total = options.max_zip_uncompressed_size_mb * 1024 * 1024
@@ -228,8 +246,14 @@ def read_remote_zip_tail_text(ssh: SSHClientWrapper, target: K8sTarget, file: Re
         raise ServiceError("REAL_TIME_ZIP_TAIL_FAILED", f"real_time zip tail failed for pod {target.pod}", http_status=502, details=err[-4000:])
     return out
 
+
 def read_remote_real_time_text(ssh: SSHClientWrapper, target: K8sTarget, file: RemoteLogFile, options: Options) -> str:
-    return read_remote_zip_tail_text(ssh, target, file, options) if is_zip_log_file(file) else read_remote_plain_tail_text(ssh, target, file, options)
+    if is_zip_log_file(file):
+        return read_remote_zip_tail_text(ssh, target, file, options)
+    if is_gzip_log_file(file):
+        return read_remote_gzip_tail_text(ssh, target, file, options)
+    return read_remote_plain_tail_text(ssh, target, file, options)
+
 
 def _make_scan_result(req: ExtractRequest, state: ScanState, scanned_files: int) -> dict[str, Any]:
     return {
@@ -237,6 +261,7 @@ def _make_scan_result(req: ExtractRequest, state: ScanState, scanned_files: int)
         "missed_chat_ids": [chat_id for chat_id, values in state.results.items() if not values],
         "scanned_files": scanned_files,
     }
+
 
 def scan_logs(req: ExtractRequest, local_files: list[LocalLogFile], warnings: list[WarningItem]) -> dict[str, Any]:
     chat_id_set = set(req.chat_ids)
@@ -250,16 +275,20 @@ def scan_logs(req: ExtractRequest, local_files: list[LocalLogFile], warnings: li
             continue
         scanned_files += 1
         if zipfile.is_zipfile(path):
-            for extracted_file in get_cached_zip_extract(path, req.options, warnings):
-                if extracted_file.is_file():
-                    scan_regular_file(extracted_file, chat_id_set, coarse_pattern, data_pattern, state, req.options, req.return_mode)
-                if all_reached_limit(state, req.options.max_matches_per_chat_id):
-                    break
+            scan_files = get_cached_zip_extract(path, req.options, warnings)
+        elif is_gzip_path(path):
+            scan_files = get_cached_gzip_extract(path, req.options, warnings)
         else:
-            scan_regular_file(path, chat_id_set, coarse_pattern, data_pattern, state, req.options, req.return_mode)
+            scan_files = [path]
+        for scan_file in scan_files:
+            if scan_file.is_file():
+                scan_regular_file(scan_file, chat_id_set, coarse_pattern, data_pattern, state, req.options, req.return_mode)
+            if all_reached_limit(state, req.options.max_matches_per_chat_id):
+                break
         if all_reached_limit(state, req.options.max_matches_per_chat_id):
             break
     return _make_scan_result(req, state, scanned_files)
+
 
 def scan_remote_logs_real_time(ssh: SSHClientWrapper, req: ExtractRequest, batches: list[ResolvedLogBatch], warnings: list[WarningItem]) -> tuple[dict[str, Any], dict[str, Any]]:
     chat_id_set = set(req.chat_ids)
