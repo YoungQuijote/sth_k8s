@@ -17,6 +17,8 @@ from src.utils.common_utils import now_ts
 from src.main_loop import parse_request, handle_extract
 from src.sqlite_tool.sqlite_query import parse_sqlite_query_request, handle_sqlite_query
 from src.sqlite_tool.sqlite_rule import SQLITE_QUERY_RULES
+from src.export_tool.file_export import handle_file_export
+from src.export_tool.file_export_request import parse_file_export_request
 from src.rescue_channel.rescue_channel import (
     RESCUE_CHANNEL_BASE_URL,
     SQLITE_RESCUE_CHANNEL_BASE_URL,
@@ -200,6 +202,28 @@ def sqlite_query_api():
             "error": {
                 "code": "INTERNAL_ERROR",
                 "message": str(ue),
+                "details": traceback.format_exc(limit=8),
+            },
+        }), 500
+
+
+@app.route("/api/v1/k8s/files/export", methods=["POST"])
+def files_export_api():
+    req = None
+    try:
+        payload = request.get_json(force=True, silent=False)
+        req = parse_file_export_request(payload)
+        return jsonify(handle_file_export(req)), 200
+    except Exception as fe:
+        logger.exception("Files UnexpectedError: {}", fe)
+        return jsonify({
+            "success": False,
+            "items": [],
+            "meta": {"trace": req.trace if req else {}},
+            "warnings": [],
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": str(fe),
                 "details": traceback.format_exc(limit=8),
             },
         }), 500
