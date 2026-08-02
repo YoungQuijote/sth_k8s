@@ -2,7 +2,7 @@ import threading
 import time
 import unittest
 
-from models import ServiceError
+from src.models import ServiceError
 from sqlite_concurrency import SQLiteConcurrencyConfig, SQLiteSourceLimiter
 
 

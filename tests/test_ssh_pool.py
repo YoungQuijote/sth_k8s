@@ -2,8 +2,8 @@ import threading
 import time
 import unittest
 
-from models import SSHInfo, ServiceError
-from ssh_pool import SSHConnectionManager, SSHPoolConfig
+from src.models import SSHInfo, ServiceError
+from src.utils.ssh_pool import SSHConnectionManager, SSHPoolConfig
 
 
 class FakeClient:

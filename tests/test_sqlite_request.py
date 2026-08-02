@@ -1,7 +1,7 @@
 import unittest
 
 import sqlite_request as sqlite_query
-from models import SQLiteQuerySpec, ServiceError
+from src.models import SQLiteQuerySpec, ServiceError
 from sqlite_rule import SQLITE_QUERY_RULES
 
 

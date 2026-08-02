@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from preset_scripts import SQLITE_QUERY_RESULT_MARKER, SQLITE_QUERY_SCRIPT
+from src.preset_scripts import SQLITE_QUERY_RESULT_MARKER, SQLITE_QUERY_SCRIPT
 
 
 class SQLiteQueryScriptTests(unittest.TestCase):

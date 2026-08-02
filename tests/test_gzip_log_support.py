@@ -5,13 +5,13 @@ import sys
 import tempfile
 import unittest
 
-from gzip_utils import (
+from src.utils.gzip_utils import (
     REAL_TIME_GZIP_TAIL_SCRIPT,
     get_cached_gzip_extract,
     is_gzip_path,
     safe_extract_gzip,
 )
-from models import (
+from src.models import (
     ExtractRequest,
     LocalLogFile,
     Options,
@@ -19,7 +19,7 @@ from models import (
     Selector,
     SSHInfo,
 )
-from read_utils import scan_logs
+from src.utils.read_utils import scan_logs
 
 
 class GzipLogSupportTests(unittest.TestCase):
