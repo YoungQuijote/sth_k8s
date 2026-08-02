@@ -16,8 +16,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.utils.common_utils import compile_pattern, make_source_id, q, regex_search, sha256_text, stable_json, validate_basename_rule
-from file_export_models import OVERWRITE_REJECT, OVERWRITE_REPLACE, FileExportRequest
-from file_transfer import transfer_resolved_batch
+from src.export_tool.file_export_models import OVERWRITE_REJECT, OVERWRITE_REPLACE, FileExportRequest
+from src.export_tool.file_transfer import transfer_resolved_batch
 from src.k8s_resolver import get_pods_json, list_child_entries, resolve_k8s_targets
 from src.models import (
     MODE_CONTAINS,

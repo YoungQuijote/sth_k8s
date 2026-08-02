@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 import paramiko
 
-from models import (
+from src.models import (
     DEFAULT_REAL_TAIL_BYTES, MAX_REAL_TAIL_BYTES, MODE_CONTAINS, MODE_EXACT, MODE_REGEX,
     POD_MATCH_ALL, POD_MATCH_SINGLE, RETURN_MODE_FULL_LINE, RETURN_MODE_MATCH, RETURN_MODE_VALUE,
     TRANSFER_COMPATIBLE, TRANSFER_STREAM, ExtractRequest, Options, ResolvedLogBatch, SegmentRule,
@@ -20,8 +20,8 @@ from src.utils.cache_utils import (
     should_skip_refresh_by_interval,
 )
 from src.utils.ssh_utils import SSHClientWrapper
-from k8s_resolver import get_pods_json, list_remote_log_files, resolve_base_path, resolve_k8s_targets, stat_remote_log_files
-from log_fetcher import fetch_logs
+from src.k8s_resolver import get_pods_json, list_remote_log_files, resolve_base_path, resolve_k8s_targets, stat_remote_log_files
+from src.log_fetcher import fetch_logs
 from src.utils.read_utils import scan_logs, scan_remote_logs_real_time
 
 def parse_segment(obj: Any, field_name: str) -> SegmentRule:

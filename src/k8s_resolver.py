@@ -6,7 +6,7 @@ import dataclasses
 import json
 from typing import Any, Literal
 
-from models import K8sTarget, Options, RemoteLogFile, SegmentRule, Selector, ServiceError, POD_MATCH_SINGLE
+from src.models import K8sTarget, Options, RemoteLogFile, SegmentRule, Selector, ServiceError, POD_MATCH_SINGLE
 from src.utils.common_utils import q, basename_match, make_source_id, validate_basename_rule
 from src.utils.ssh_utils import SSHClientWrapper, kubectl_exec_cmd
 

@@ -10,7 +10,7 @@ import pathlib
 import subprocess
 from typing import Any, Optional
 
-from sqlite_rescue_runtime import (
+from src.rescue_channel.sqlite_rescue_runtime import (
     ALLOW_ANY_SELECTOR, ALLOWED_SELECTORS, DEFAULT_CONTAINER_ROOT, DISABLE_NODE_SCOPE,
     KUBECTL_BIN, KUBECONFIG, KUBECTL_CONTEXT, MAX_SELECTOR_TARGETS, MAX_STDERR_BYTES,
     NODE_NAME, POD_MATCH_SINGLE, SELECTOR_ROOTS, CommandResult, SQLiteRescueOptions,

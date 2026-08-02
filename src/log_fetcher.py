@@ -11,8 +11,8 @@ from typing import Any
 
 import paramiko
 
-from models import K8sTarget, Options, RemoteLogFile, ResolvedLogBatch, ServiceError, WarningItem
-from models import DEFAULT_CACHE_ROOT, DEFAULT_REMOTE_TMP_PREFIX, POD_MATCH_ALL, TRANSFER_COMPATIBLE, TRANSFER_STREAM
+from src.models import K8sTarget, Options, RemoteLogFile, ResolvedLogBatch, ServiceError, WarningItem
+from src.models import DEFAULT_CACHE_ROOT, DEFAULT_REMOTE_TMP_PREFIX, POD_MATCH_ALL, TRANSFER_COMPATIBLE, TRANSFER_STREAM
 from src.utils.common_utils import q, stat_mod, stable_json, sha256_text
 from src.utils.cache_utils import CacheStore
 from src.utils.ssh_utils import SSHClientWrapper

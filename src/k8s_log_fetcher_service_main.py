@@ -12,9 +12,9 @@ import requests
 from flask import Flask, jsonify, request
 from loguru import logger
 
-from models import APP_NAME, APP_VERSION, ServiceError
+from src.models import APP_NAME, APP_VERSION, ServiceError
 from src.utils.common_utils import now_ts
-from main_loop import parse_request, handle_extract
+from src.main_loop import parse_request, handle_extract
 from src.sqlite_tool.sqlite_query import parse_sqlite_query_request, handle_sqlite_query
 from src.sqlite_tool.sqlite_rule import SQLITE_QUERY_RULES
 from src.rescue_channel.rescue_channel import (

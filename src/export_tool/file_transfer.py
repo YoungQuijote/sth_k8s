@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pathlib
 
-from file_export_models import FileExportOptions
+from src.export_tool.file_export_models import FileExportOptions
 from src.log_fetcher import (
     clean_remote_tmp,
     copy_active_file_to_node_tmp_by_cat,

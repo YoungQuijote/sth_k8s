@@ -16,12 +16,12 @@ from typing import Any
 from flask import Blueprint, Flask, jsonify, request
 
 from src.preset_scripts import SQLITE_QUERY_RESULT_MARKER, SQLITE_QUERY_SCRIPT
-from sqlite_rescue_runtime import (
+from src.rescue_channel.sqlite_rescue_runtime import (
     ALLOW_NO_AUTH, RESCUE_TOKEN, MAX_REQUEST_BYTES, POD_MATCH_ALL,
     SQLiteRescueRequest, SQLiteSource, ServiceError, WarningItem,
     basename_match, parse_request,
 )
-from sqlite_rescue_kube import (
+from src.rescue_channel.sqlite_rescue_kube import (
     KubectlRunner, canonical_root, list_entries, resolve_base, resolve_targets, target_root,
 )
 
